@@ -1,9 +1,11 @@
+use std::fs;
+use std::io::{self, BufRead, BufReader};
+use std::os::unix::ffi::OsStrExt;
+use std::process;
+
 use clap::Parser;
 use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
-use std::fs::{self, File};
-use std::io::{self, Read};
-use std::process;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -14,36 +16,74 @@ struct Args {
 
 fn list_pids_by_comm(target_name: &str) -> io::Result<Vec<u32>> {
     let mut pids = Vec::new();
+    let target_bytes = target_name.as_bytes();
 
-    for entry in fs::read_dir("/proc")? {
+    let mut comm_buf = Vec::with_capacity(16);
+
+    let proc_dir = fs::read_dir("/proc")?;
+
+    for entry in proc_dir {
         let entry = match entry {
             Ok(e) => e,
             Err(_) => continue,
         };
 
-        let file_names = entry.file_name();
+        let file_name = entry.file_name();
+        let file_name_bytes = file_name.as_bytes();
 
-        let pid_str = match file_names.to_str() {
-            Some(s) if s.chars().all(|c| c.is_ascii_digit()) => s,
-            _ => continue,
+        if !file_name_bytes.iter().all(|&b| b.is_ascii_digit()) {
+            continue;
+        }
+
+        let pid = match parse_pid_from_bytes(file_name_bytes) {
+            Some(p) => p,
+            None => continue,
         };
 
         let comm_path = entry.path().join("comm");
-        let mut buf = String::new();
-        if let Ok(mut f) = File::open(&comm_path)
-            && f.read_to_string(&mut buf).is_ok()
-            && buf.trim_end() == target_name
-            && let Ok(pid) = pid_str.parse::<u32>()
-        {
-            pids.push(pid);
+
+        match fs::File::open(&comm_path) {
+            Ok(file) => {
+                let mut reader = BufReader::new(file);
+                comm_buf.clear();
+
+                if reader.read_until(b'\n', &mut comm_buf).is_ok() {
+                    if comm_buf.last() == Some(&b'\n') {
+                        comm_buf.pop();
+                    }
+
+                    if comm_buf == target_bytes {
+                        pids.push(pid);
+                    }
+                }
+            }
+            Err(_) => continue,
         }
     }
 
     Ok(pids)
 }
 
+#[inline]
+fn parse_pid_from_bytes(bytes: &[u8]) -> Option<u32> {
+    if bytes.is_empty() || bytes.len() > 10 {
+        return None;
+    }
+
+    let mut result = 0u32;
+    for &byte in bytes {
+        if !byte.is_ascii_digit() {
+            return None;
+        }
+        result = result.checked_mul(10)?.checked_add((byte - b'0') as u32)?;
+    }
+
+    if result == 0 { None } else { Some(result) }
+}
+
 fn main() {
     let args = Args::parse();
+
     let pids = match list_pids_by_comm(&args.name) {
         Ok(pids) => pids,
         Err(e) => {
@@ -55,11 +95,11 @@ fn main() {
     if pids.is_empty() {
         eprintln!("{}: no process found", args.name);
         process::exit(1);
-    } else {
-        for pid in pids {
-            if let Err(err) = kill(Pid::from_raw(pid as i32), Signal::SIGKILL) {
-                eprintln!("Failed to kill {}: {}", pid, err);
-            }
+    }
+
+    for pid in pids {
+        if let Err(err) = kill(Pid::from_raw(pid as i32), Signal::SIGKILL) {
+            eprintln!("Failed to kill {}: {}", pid, err);
         }
     }
 }
@@ -67,8 +107,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::{self, File};
-    use std::io::Write;
+    use std::fs;
     use std::path::PathBuf;
 
     fn setup_proc_dir() -> PathBuf {
@@ -87,20 +126,13 @@ mod tests {
     }
 
     #[test]
-    fn test_list_pids_by_comm_single() {
-        let tmp_dir = setup_proc_dir();
-
-        let pid_dir = tmp_dir.join("1234");
-        fs::create_dir_all(&pid_dir).unwrap();
-
-        let comm_path = pid_dir.join("comm");
-        let mut f = File::create(&comm_path).unwrap();
-        write!(f, "myprocess\n").unwrap();
-
-        let result = list_pids_by_comm_in_dir("myprocess", &tmp_dir).unwrap();
-        assert_eq!(result, vec![1234]);
-
-        cleanup_proc_dir(&tmp_dir);
+    fn test_parse_pid_from_bytes() {
+        assert_eq!(parse_pid_from_bytes(b"1234"), Some(1234));
+        assert_eq!(parse_pid_from_bytes(b"0"), None);
+        assert_eq!(parse_pid_from_bytes(b"abc"), None);
+        assert_eq!(parse_pid_from_bytes(b""), None);
+        assert_eq!(parse_pid_from_bytes(b"4294967295"), Some(4294967295));
+        assert_eq!(parse_pid_from_bytes(b"4294967296"), None);
     }
 
     #[test]
@@ -118,6 +150,8 @@ mod tests {
         dir: &std::path::Path,
     ) -> std::io::Result<Vec<u32>> {
         let mut pids = Vec::new();
+        let target_bytes = target_name.as_bytes();
+        let mut comm_buf = Vec::with_capacity(16);
 
         for entry in fs::read_dir(dir)? {
             let entry = match entry {
@@ -125,21 +159,36 @@ mod tests {
                 Err(_) => continue,
             };
 
-            let file_names = entry.file_name();
+            let file_name = entry.file_name();
+            let file_name_bytes = file_name.as_bytes();
 
-            let pid_str = match file_names.to_str() {
-                Some(s) if s.chars().all(|c| c.is_ascii_digit()) => s,
-                _ => continue,
+            if !file_name_bytes.iter().all(|&b| b.is_ascii_digit()) {
+                continue;
+            }
+
+            let pid = match parse_pid_from_bytes(file_name_bytes) {
+                Some(p) => p,
+                None => continue,
             };
 
             let comm_path = entry.path().join("comm");
-            let mut buf = String::new();
-            if let Ok(mut f) = File::open(&comm_path)
-                && f.read_to_string(&mut buf).is_ok()
-                && buf.trim_end() == target_name
-                && let Ok(pid) = pid_str.parse::<u32>()
-            {
-                pids.push(pid);
+
+            match fs::File::open(&comm_path) {
+                Ok(file) => {
+                    let mut reader = BufReader::new(file);
+                    comm_buf.clear();
+
+                    if reader.read_until(b'\n', &mut comm_buf).is_ok() {
+                        if comm_buf.last() == Some(&b'\n') {
+                            comm_buf.pop();
+                        }
+
+                        if comm_buf == target_bytes {
+                            pids.push(pid);
+                        }
+                    }
+                }
+                Err(_) => continue,
             }
         }
 
