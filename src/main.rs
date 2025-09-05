@@ -1,17 +1,31 @@
-use std::fs;
-use std::io::{self, BufRead, BufReader};
-use std::os::unix::ffi::OsStrExt;
-use std::process;
+use std::{
+    fs,
+    io::{self, BufRead, BufReader},
+    os::unix::ffi::OsStrExt,
+    process,
+};
 
-use clap::Parser;
-use nix::sys::signal::{Signal, kill};
-use nix::unistd::Pid;
+use clap::{
+    Parser,
+    builder::{Styles, styling::AnsiColor},
+};
+use nix::{
+    sys::signal::{Signal, kill},
+    unistd::Pid,
+};
+
+const STYLES: Styles = Styles::styled()
+    .header(AnsiColor::Green.on_default().bold())
+    .usage(AnsiColor::Green.on_default().bold())
+    .literal(AnsiColor::Cyan.on_default().bold())
+    .placeholder(AnsiColor::Cyan.on_default());
 
 #[derive(Parser, Debug)]
+#[command(styles = STYLES)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Process name to kill
-    name: String,
+    process_name: String,
 }
 
 fn list_pids_by_comm(target_name: &str) -> io::Result<Vec<u32>> {
@@ -86,7 +100,7 @@ fn parse_pid_from_bytes(bytes: &[u8]) -> Option<u32> {
 fn main() {
     let args = Args::parse();
 
-    let pids = match list_pids_by_comm(&args.name) {
+    let pids = match list_pids_by_comm(&args.process_name) {
         Ok(pids) => pids,
         Err(e) => {
             eprintln!("Error: {}", e);
@@ -95,7 +109,7 @@ fn main() {
     };
 
     if pids.is_empty() {
-        eprintln!("{}: no process found", args.name);
+        eprintln!("{}: no process found", args.process_name);
         process::exit(1);
     }
 

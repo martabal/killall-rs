@@ -4,6 +4,7 @@ version = "0.0.1"
 edition = "2024"
 rust-version = "1.88.0"
 license = "MIT"
+authors = ["martabal"]
 description = "Rust implementation of killall"
 homepage = "https://github.com/martabal/faulx"
 repository = "https://github.com/martabal/faulx"
