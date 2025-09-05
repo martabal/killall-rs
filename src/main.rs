@@ -15,53 +15,55 @@ struct Args {
 }
 
 fn list_pids_by_comm(target_name: &str) -> io::Result<Vec<u32>> {
-    let mut pids = Vec::new();
     let target_bytes = target_name.as_bytes();
 
+    let entries = fs::read_dir("/proc")?
+        .filter_map(|e| e.ok())
+        .collect::<Vec<_>>();
+
+    #[cfg(feature = "rayon")]
+    use rayon::prelude::*;
+
+    #[cfg(feature = "rayon")]
+    let results: Vec<u32> = entries
+        .par_iter()
+        .filter_map(|entry| check_entry(entry, target_bytes))
+        .collect();
+
+    #[cfg(not(feature = "rayon"))]
+    let results: Vec<u32> = entries
+        .iter()
+        .filter_map(|entry| check_entry(entry, target_bytes))
+        .collect();
+
+    Ok(results)
+}
+
+fn check_entry(entry: &fs::DirEntry, target_bytes: &[u8]) -> Option<u32> {
+    let file_name = entry.file_name();
+    let file_name_bytes = file_name.as_bytes();
+
+    if !file_name_bytes.iter().all(|&b| b.is_ascii_digit()) {
+        return None;
+    }
+
+    let pid = parse_pid_from_bytes(file_name_bytes)?;
+    let comm_path = entry.path().join("comm");
+
+    let file = fs::File::open(comm_path).ok()?;
+    let mut reader = BufReader::new(file);
     let mut comm_buf = Vec::with_capacity(16);
 
-    let proc_dir = fs::read_dir("/proc")?;
-
-    for entry in proc_dir {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-
-        let file_name = entry.file_name();
-        let file_name_bytes = file_name.as_bytes();
-
-        if !file_name_bytes.iter().all(|&b| b.is_ascii_digit()) {
-            continue;
+    if reader.read_until(b'\n', &mut comm_buf).is_ok() {
+        if comm_buf.last() == Some(&b'\n') {
+            comm_buf.pop();
         }
-
-        let pid = match parse_pid_from_bytes(file_name_bytes) {
-            Some(p) => p,
-            None => continue,
-        };
-
-        let comm_path = entry.path().join("comm");
-
-        match fs::File::open(&comm_path) {
-            Ok(file) => {
-                let mut reader = BufReader::new(file);
-                comm_buf.clear();
-
-                if reader.read_until(b'\n', &mut comm_buf).is_ok() {
-                    if comm_buf.last() == Some(&b'\n') {
-                        comm_buf.pop();
-                    }
-
-                    if comm_buf == target_bytes {
-                        pids.push(pid);
-                    }
-                }
-            }
-            Err(_) => continue,
+        if comm_buf == target_bytes {
+            return Some(pid);
         }
     }
 
-    Ok(pids)
+    None
 }
 
 #[inline]
