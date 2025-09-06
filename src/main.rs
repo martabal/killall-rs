@@ -31,23 +31,18 @@ struct Args {
 fn list_pids_by_comm(target_name: &str) -> io::Result<Vec<u32>> {
     let target_bytes = target_name.as_bytes();
 
-    let entries = fs::read_dir("/proc")?
-        .filter_map(|e| e.ok())
-        .collect::<Vec<_>>();
-
     #[cfg(feature = "rayon")]
     use rayon::prelude::*;
 
     #[cfg(feature = "rayon")]
-    let results: Vec<u32> = entries
-        .par_iter()
-        .filter_map(|entry| check_entry(entry, target_bytes))
+    let results: Vec<u32> = fs::read_dir("/proc")?
+        .par_bridge()
+        .filter_map(|e| e.ok().and_then(|entry| check_entry(&entry, target_bytes)))
         .collect();
 
     #[cfg(not(feature = "rayon"))]
-    let results: Vec<u32> = entries
-        .iter()
-        .filter_map(|entry| check_entry(entry, target_bytes))
+    let results: Vec<u32> = fs::read_dir("/proc")?
+        .filter_map(|e| e.ok().and_then(|entry| check_entry(&entry, target_bytes)))
         .collect();
 
     Ok(results)
