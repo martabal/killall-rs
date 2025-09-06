@@ -109,7 +109,7 @@ fn main() {
     }
 
     for pid in pids {
-        if let Err(err) = kill(Pid::from_raw(pid as i32), Signal::SIGKILL) {
+        if let Err(err) = kill(Pid::from_raw(pid as i32), Signal::SIGTERM) {
             eprintln!("Failed to kill {}: {}", pid, err);
         }
     }
