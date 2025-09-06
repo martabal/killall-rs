@@ -14,6 +14,8 @@ use nix::{
     unistd::Pid,
 };
 
+const MAX_NAMES: usize = std::mem::size_of::<usize>() * 8;
+
 const STYLES: Styles = Styles::styled()
     .header(AnsiColor::Green.on_default().bold())
     .usage(AnsiColor::Green.on_default().bold())
@@ -24,8 +26,17 @@ const STYLES: Styles = Styles::styled()
 #[command(styles = STYLES)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Process name to kill
-    process_name: String,
+    /// process name to kill
+    #[arg(required_unless_present = "list")]
+    process_names: Vec<String>,
+
+    /// list all known signal names
+    #[arg(short = 'l', long)]
+    list: bool,
+
+    /// Send this signal instead of SIGTERM
+    #[arg(short = 's', long)]
+    signal: Option<String>,
 }
 
 fn list_pids_by_comm(target_name: &str) -> io::Result<Vec<u32>> {
@@ -92,25 +103,103 @@ fn parse_pid_from_bytes(bytes: &[u8]) -> Option<u32> {
     if result == 0 { None } else { Some(result) }
 }
 
+static SIGNALS: &[(&str, Signal)] = &[
+    ("INT", Signal::SIGINT),
+    ("TERM", Signal::SIGTERM),
+    ("KILL", Signal::SIGKILL),
+    ("HUP", Signal::SIGHUP),
+    ("QUIT", Signal::SIGQUIT),
+    ("USR1", Signal::SIGUSR1),
+    ("USR2", Signal::SIGUSR2),
+    ("ALRM", Signal::SIGALRM),
+    ("CONT", Signal::SIGCONT),
+    ("STOP", Signal::SIGSTOP),
+    ("TSTP", Signal::SIGTSTP),
+    ("CHLD", Signal::SIGCHLD),
+    ("PIPE", Signal::SIGPIPE),
+    ("SEGV", Signal::SIGSEGV),
+    ("ABRT", Signal::SIGABRT),
+    ("ILL", Signal::SIGILL),
+    ("TRAP", Signal::SIGTRAP),
+    ("BUS", Signal::SIGBUS),
+    ("FPE", Signal::SIGFPE),
+    ("TTIN", Signal::SIGTTIN),
+    ("TTOU", Signal::SIGTTOU),
+    ("URG", Signal::SIGURG),
+    ("XCPU", Signal::SIGXCPU),
+    ("XFSZ", Signal::SIGXFSZ),
+    ("VTALRM", Signal::SIGVTALRM),
+    ("PROF", Signal::SIGPROF),
+    ("WINCH", Signal::SIGWINCH),
+    ("IO", Signal::SIGIO),
+    ("PWR", Signal::SIGPWR),
+    ("SYS", Signal::SIGSYS),
+];
+
+fn parse_signal(name: &str) -> Option<Signal> {
+    let upper = name.to_uppercase();
+
+    SIGNALS
+        .iter()
+        .find(|(sig_name, _)| *sig_name == upper.as_str())
+        .map(|(_, signal)| *signal)
+}
+
+fn list_signals() -> String {
+    SIGNALS
+        .iter()
+        .map(|(name, _)| *name)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn main() {
     let args = Args::parse();
 
-    let pids = match list_pids_by_comm(&args.process_name) {
-        Ok(pids) => pids,
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            process::exit(1);
-        }
-    };
+    if args.list {
+        println!("{}", list_signals());
+        return;
+    }
 
-    if pids.is_empty() {
-        eprintln!("{}: no process found", args.process_name);
+    if args.process_names.len() > MAX_NAMES {
+        eprintln!(
+            "{}: Maximum number of names is {} and you gave {}",
+            env!("CARGO_PKG_NAME"),
+            MAX_NAMES,
+            args.process_names.len(),
+        );
         process::exit(1);
     }
 
-    for pid in pids {
-        if let Err(err) = kill(Pid::from_raw(pid as i32), Signal::SIGTERM) {
-            eprintln!("Failed to kill {}: {}", pid, err);
+    let sig = match args.signal.as_deref() {
+        Some(name) => match parse_signal(name) {
+            Some(s) => s,
+            None => {
+                eprintln!("{name}: unknown signal");
+                process::exit(1);
+            }
+        },
+        None => Signal::SIGTERM,
+    };
+
+    for process_name in args.process_names.iter() {
+        let pids = match list_pids_by_comm(process_name) {
+            Ok(pids) => pids,
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                continue;
+            }
+        };
+
+        if pids.is_empty() {
+            eprintln!("{}: no process found", process_name);
+            continue;
+        }
+
+        for pid in pids {
+            if let Err(err) = kill(Pid::from_raw(pid as i32), sig) {
+                eprintln!("Failed to send signal to {}: {}", pid, err);
+            }
         }
     }
 }
