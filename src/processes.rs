@@ -1,4 +1,4 @@
-use std::{fs, io, os::unix::ffi::OsStrExt, str::from_utf8_unchecked};
+use std::{fs, io, os::unix::ffi::OsStrExt, str::from_utf8};
 
 const PROC: &str = "/proc/";
 const COMM: &str = "/comm";
@@ -28,9 +28,9 @@ fn check_entry(entry: &fs::DirEntry, target_bytes: &[u8]) -> Option<i32> {
 
     let mut path = [0u8; 32];
     let len = write_proc_comm_path(pid, &mut path)?;
-    let comm_path = unsafe { from_utf8_unchecked(&path[..len]) };
+    let comm_path = from_utf8(&path[..len]).ok()?;
 
-    let mut buf = [0u8; 16];
+    let mut buf = [0u8; 64];
     let len = fs::File::open(comm_path)
         .ok()
         .and_then(|mut f| io::Read::read(&mut f, &mut buf).ok())?;
