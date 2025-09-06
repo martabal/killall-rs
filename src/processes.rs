@@ -1,12 +1,15 @@
 use std::{fs, io, os::unix::ffi::OsStrExt, str::from_utf8_unchecked};
 
+const PROC: &str = "/proc/";
+const COMM: &str = "/comm";
+
 pub fn list_pids_by_comm(target_name: &str) -> io::Result<Vec<i32>> {
     let target_bytes = target_name.as_bytes();
 
     #[cfg(feature = "rayon")]
     {
         use rayon::prelude::*;
-        Ok(fs::read_dir("/proc")?
+        Ok(fs::read_dir(PROC)?
             .par_bridge()
             .filter_map(|e| e.ok().and_then(|entry| check_entry(&entry, target_bytes)))
             .collect())
@@ -14,7 +17,7 @@ pub fn list_pids_by_comm(target_name: &str) -> io::Result<Vec<i32>> {
 
     #[cfg(not(feature = "rayon"))]
     {
-        Ok(fs::read_dir("/proc")?
+        Ok(fs::read_dir(PROC)?
             .filter_map(|e| e.ok().and_then(|entry| check_entry(&entry, target_bytes)))
             .collect())
     }
@@ -60,7 +63,7 @@ fn parse_pid_from_bytes(bytes: &[u8]) -> Option<i32> {
 #[inline(always)]
 fn write_proc_comm_path(pid: i32, buf: &mut [u8]) -> Option<usize> {
     let mut i = 0;
-    let prefix = b"/proc/";
+    let prefix = PROC.as_bytes();
     buf[..prefix.len()].copy_from_slice(prefix);
     i += prefix.len();
 
@@ -82,8 +85,9 @@ fn write_proc_comm_path(pid: i32, buf: &mut [u8]) -> Option<usize> {
     }
     i += digits;
 
-    buf[i..i + 5].copy_from_slice(b"/comm");
-    i += 5;
+    let comm_bytes = COMM.as_bytes();
+    buf[i..i + comm_bytes.len()].copy_from_slice(comm_bytes);
+    i += comm_bytes.len();
 
     Some(i)
 }
