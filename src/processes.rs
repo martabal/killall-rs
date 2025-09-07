@@ -1,7 +1,6 @@
-use std::{fs, io, os::unix::ffi::OsStrExt, str::from_utf8};
+use std::{fs, io, os::unix::ffi::OsStrExt};
 
-const PROC: &str = "/proc/";
-const COMM: &str = "/comm";
+const PROC: &str = "/proc";
 
 pub fn list_pids_by_comm(target_name: &str) -> io::Result<Vec<i32>> {
     let target_bytes = target_name.as_bytes();
@@ -26,9 +25,7 @@ pub fn list_pids_by_comm(target_name: &str) -> io::Result<Vec<i32>> {
 fn check_entry(entry: &fs::DirEntry, target_bytes: &[u8]) -> Option<i32> {
     let pid = parse_pid_from_bytes(entry.file_name().as_bytes())?;
 
-    let mut path = [0u8; 32];
-    let len = write_proc_comm_path(pid, &mut path)?;
-    let comm_path = from_utf8(&path[..len]).ok()?;
+    let comm_path = format!("{PROC}/{pid}/comm");
 
     let mut buf = [0u8; 64];
     let len = fs::File::open(comm_path)
@@ -58,38 +55,6 @@ fn parse_pid_from_bytes(bytes: &[u8]) -> Option<i32> {
         result = result.checked_mul(10)?.checked_add((b - b'0').into())?;
     }
     if result == 0 { None } else { Some(result) }
-}
-
-#[inline(always)]
-fn write_proc_comm_path(pid: i32, buf: &mut [u8]) -> Option<usize> {
-    let mut i = 0;
-    let prefix = PROC.as_bytes();
-    buf[..prefix.len()].copy_from_slice(prefix);
-    i += prefix.len();
-
-    let mut n = pid;
-    let mut tmp = [0u8; 10];
-    let mut digits = 0;
-    while n > 0 {
-        tmp[digits] = b'0' + (n % 10) as u8;
-        n /= 10;
-        digits += 1;
-    }
-    if digits == 0 {
-        tmp[0] = b'0';
-        digits = 1;
-    }
-
-    for j in 0..digits {
-        buf[i + j] = tmp[digits - 1 - j];
-    }
-    i += digits;
-
-    let comm_bytes = COMM.as_bytes();
-    buf[i..i + comm_bytes.len()].copy_from_slice(comm_bytes);
-    i += comm_bytes.len();
-
-    Some(i)
 }
 
 #[cfg(test)]
