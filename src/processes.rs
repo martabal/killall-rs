@@ -1,25 +1,24 @@
 use std::{fs, io, os::unix::ffi::OsStrExt};
 
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
+
 const PROC: &str = "/proc";
 
 pub fn list_pids_by_comm(target_name: &str) -> io::Result<Vec<i32>> {
     let target_bytes = target_name.as_bytes();
 
+    let entries = fs::read_dir(PROC)?;
+
     #[cfg(feature = "rayon")]
-    {
-        use rayon::prelude::*;
-        Ok(fs::read_dir(PROC)?
-            .par_bridge()
-            .filter_map(|e| e.ok().and_then(|entry| check_entry(&entry, target_bytes)))
-            .collect())
-    }
+    let iter = entries.par_bridge();
 
     #[cfg(not(feature = "rayon"))]
-    {
-        Ok(fs::read_dir(PROC)?
-            .filter_map(|e| e.ok().and_then(|entry| check_entry(&entry, target_bytes)))
-            .collect())
-    }
+    let iter = entries.into_iter();
+
+    Ok(iter
+        .filter_map(|e| e.ok().and_then(|entry| check_entry(&entry, target_bytes)))
+        .collect())
 }
 
 fn check_entry(entry: &fs::DirEntry, target_bytes: &[u8]) -> Option<i32> {
