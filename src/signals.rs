@@ -33,6 +33,7 @@ static SIGNALS: &[(&str, Signal)] = &[
     ("SYS", Signal::SIGSYS),
 ];
 
+#[must_use]
 pub fn parse_signal(name: &str) -> Option<Signal> {
     let upper = name.to_uppercase();
 
@@ -42,6 +43,7 @@ pub fn parse_signal(name: &str) -> Option<Signal> {
         .map(|(_, signal)| *signal)
 }
 
+#[must_use]
 pub fn list_signals() -> String {
     SIGNALS
         .iter()

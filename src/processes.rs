@@ -40,7 +40,6 @@ fn check_entry(entry: &fs::DirEntry, target_bytes: &[u8]) -> Option<i32> {
     (name == target_bytes).then_some(pid)
 }
 
-#[inline(always)]
 fn parse_pid_from_bytes(bytes: &[u8]) -> Option<i32> {
     if bytes.is_empty() || bytes.len() > 10 {
         return None;

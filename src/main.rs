@@ -30,34 +30,33 @@ fn main() {
         process::exit(1);
     }
 
-    let sig = match args.signal.as_deref() {
-        Some(name) => match parse_signal(name) {
-            Some(s) => s,
-            None => {
+    let sig = args.signal.as_deref().map_or(Signal::SIGTERM, |name| {
+        parse_signal(name).map_or_else(
+            || {
                 eprintln!("{name}: unknown signal");
                 process::exit(1);
-            }
-        },
-        None => Signal::SIGTERM,
-    };
+            },
+            |s| s,
+        )
+    });
 
-    for process_name in args.process_names.iter() {
+    for process_name in &args.process_names {
         let pids = match list_pids_by_comm(process_name) {
             Ok(pids) => pids,
             Err(e) => {
-                eprintln!("Error: {}", e);
+                eprintln!("Error: {e}");
                 continue;
             }
         };
 
         if pids.is_empty() {
-            eprintln!("{}: no process found", process_name);
+            eprintln!("{process_name}: no process found");
             process::exit(1);
         }
 
         for pid in pids {
             if let Err(err) = kill(Pid::from_raw(pid), sig) {
-                eprintln!("Failed to send signal to {}: {}", pid, err);
+                eprintln!("Failed to send signal to {pid}: {err}");
             }
         }
     }
