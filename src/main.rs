@@ -1,4 +1,4 @@
-use std::process;
+use std::{process, sync::atomic::Ordering};
 
 use clap::Parser;
 use nix::{
@@ -8,12 +8,16 @@ use nix::{
 
 use faulx::{
     cli::{FaulxArgs, MAX_NAMES},
+    macros::QUIET,
     processes::list_pids_by_comm,
+    qprintln,
     signals::{list_signals, parse_signal},
 };
 
 fn main() {
     let args = FaulxArgs::parse();
+
+    QUIET.store(args.quiet, Ordering::Relaxed);
 
     if args.list {
         println!("{}", list_signals());
@@ -21,7 +25,7 @@ fn main() {
     }
 
     if args.process_names.len() > MAX_NAMES {
-        eprintln!(
+        qprintln!(
             "{}: Maximum number of names is {} and you gave {}",
             env!("CARGO_PKG_NAME"),
             MAX_NAMES,
@@ -33,7 +37,7 @@ fn main() {
     let sig = args.signal.as_deref().map_or(Signal::SIGTERM, |name| {
         parse_signal(name).map_or_else(
             || {
-                eprintln!("{name}: unknown signal");
+                qprintln!("{name}: unknown signal");
                 process::exit(1);
             },
             |s| s,
@@ -44,19 +48,19 @@ fn main() {
         let pids = match list_pids_by_comm(process_name) {
             Ok(pids) => pids,
             Err(e) => {
-                eprintln!("Error: {e}");
+                qprintln!("Error: {e}");
                 continue;
             }
         };
 
         if pids.is_empty() {
-            eprintln!("{process_name}: no process found");
+            qprintln!("{process_name}: no process found");
             process::exit(1);
         }
 
         for pid in pids {
             if let Err(err) = kill(Pid::from_raw(pid), sig) {
-                eprintln!("Failed to send signal to {pid}: {err}");
+                qprintln!("Failed to send signal to {pid}: {err}");
             }
         }
     }

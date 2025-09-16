@@ -27,4 +27,8 @@ pub struct FaulxArgs {
     /// Send this signal instead of SIGTERM
     #[arg(short = 's', long)]
     pub signal: Option<String>,
+
+    /// Don't print complaints
+    #[arg(short = 'q', long)]
+    pub quiet: bool,
 }
