@@ -5,8 +5,37 @@ use rayon::prelude::*;
 
 const PROC: &str = "/proc";
 
-pub fn list_pids_by_comm(target_name: &str) -> io::Result<Vec<i32>> {
+pub fn list_pids(target_name: &str, use_group: bool) -> io::Result<Vec<i32>> {
     let target_bytes = target_name.as_bytes();
+    let entries = fs::read_dir(PROC)?;
+
+    #[cfg(feature = "rayon")]
+    let iter = entries.par_bridge();
+
+    #[cfg(not(feature = "rayon"))]
+    let iter = entries.into_iter();
+
+    let matching_pids: Vec<i32> = iter
+        .filter_map(|e| e.ok().and_then(|entry| check_entry(&entry, target_bytes)))
+        .collect();
+
+    if !use_group || matching_pids.is_empty() {
+        return Ok(matching_pids);
+    }
+
+    let mut groups = Vec::new();
+    for &pid in &matching_pids {
+        if let Some(pgrp) = check_group(&pid.to_string()) {
+            groups.push(pgrp);
+        }
+    }
+
+    if groups.is_empty() {
+        return Ok(matching_pids);
+    }
+
+    groups.sort_unstable();
+    groups.dedup();
 
     let entries = fs::read_dir(PROC)?;
 
@@ -16,27 +45,51 @@ pub fn list_pids_by_comm(target_name: &str) -> io::Result<Vec<i32>> {
     #[cfg(not(feature = "rayon"))]
     let iter = entries.into_iter();
 
-    Ok(iter
-        .filter_map(|e| e.ok().and_then(|entry| check_entry(&entry, target_bytes)))
-        .collect())
+    let mut all_pids: Vec<i32> = iter
+        .filter_map(std::result::Result::ok)
+        .filter_map(|entry| {
+            let pid = parse_pid_from_bytes(entry.file_name().as_bytes())?;
+            let pgrp = check_group(&pid.to_string())?;
+            if groups.binary_search(&pgrp).is_ok() {
+                Some(pid)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    all_pids.sort_unstable();
+    all_pids.dedup();
+
+    Ok(all_pids)
+}
+
+fn check_group(pid: &str) -> Option<i32> {
+    let stat_path = format!("{PROC}/{pid}/stat");
+    let contents = fs::read_to_string(stat_path).ok()?;
+    let mut parts = contents.split_whitespace();
+    let _pid_field = parts.next()?;
+    let _comm_field = parts.next()?;
+    let _state_field = parts.next()?;
+    let _ppid_field = parts.next()?;
+    let pgrp_field = parts.next()?;
+    let pgrp: i32 = pgrp_field.parse().ok()?;
+    Some(pgrp)
 }
 
 fn check_entry(entry: &fs::DirEntry, target_bytes: &[u8]) -> Option<i32> {
     let pid = parse_pid_from_bytes(entry.file_name().as_bytes())?;
 
     let comm_path = format!("{PROC}/{pid}/comm");
-
     let mut buf = [0u8; 64];
-    let len = fs::File::open(comm_path)
+    let len = fs::File::open(&comm_path)
         .ok()
         .and_then(|mut f| io::Read::read(&mut f, &mut buf).ok())?;
-
     let name = if len > 0 && buf[len - 1] == b'\n' {
         &buf[..len - 1]
     } else {
         &buf[..len]
     };
-
     (name == target_bytes).then_some(pid)
 }
 
@@ -104,7 +157,7 @@ mod tests {
     }
 
     #[test]
-    fn test_list_pids_by_comm_no_match() {
+    fn test_list_pids_no_match() {
         let tmp = unique_test_dir();
         setup_fake_proc(&tmp, &[("789", "sshd")]);
 

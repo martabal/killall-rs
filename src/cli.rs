@@ -31,4 +31,8 @@ pub struct FaulxArgs {
     /// Don't print complaints
     #[arg(short = 'q', long)]
     pub quiet: bool,
+
+    /// kill process group instead of process
+    #[arg(short = 'g', long)]
+    pub process_group: bool,
 }

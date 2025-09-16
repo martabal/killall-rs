@@ -9,7 +9,7 @@ use nix::{
 use faulx::{
     cli::{FaulxArgs, MAX_NAMES},
     macros::QUIET,
-    processes::list_pids_by_comm,
+    processes::list_pids,
     qprintln,
     signals::{list_signals, parse_signal},
 };
@@ -45,7 +45,7 @@ fn main() {
     });
 
     for process_name in &args.process_names {
-        let pids = match list_pids_by_comm(process_name) {
+        let pids = match list_pids(process_name, args.process_group) {
             Ok(pids) => pids,
             Err(e) => {
                 qprintln!("Error: {e}");
