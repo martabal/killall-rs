@@ -7,7 +7,6 @@ options implemented:
 - quiet
 - process-group
 - custom signal
-- wait
 - verbose
 - list signals
 
@@ -20,4 +19,4 @@ TODO:
 - regexp
 - kill process running as user
 - wait for process to die
-- proceses in the same namespace
+- processes in the same namespace
