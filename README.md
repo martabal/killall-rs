@@ -2,6 +2,22 @@
 
 Rust implementation of `killall`.
 
-Roadmap:
+options implemented:
 
-- implement all killall options
+- quiet
+- process-group
+- custom signal
+- wait
+- verbose
+- list signals
+
+TODO:
+
+- exact
+- ignore case
+- younger/older than
+- interactive mode
+- regexp
+- kill process running as user
+- wait for process to die
+- proceses in the same namespace

@@ -29,6 +29,7 @@ strip = "symbols"
 
 [lints.clippy]
 missing_errors_doc = "allow"
+struct_excessive_bools = "allow"
 correctness = { level = "deny", priority = -1 }
 suspicious = { level = "deny", priority = -1 }
 style = { level = "deny", priority = -1 }

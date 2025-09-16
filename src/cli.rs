@@ -35,4 +35,8 @@ pub struct FaulxArgs {
     /// kill process group instead of process
     #[arg(short = 'g', long)]
     pub process_group: bool,
+
+    /// Report if the signal was successfully sent
+    #[arg(long)]
+    pub verbose: bool,
 }

@@ -61,6 +61,8 @@ fn main() {
         for pid in pids {
             if let Err(err) = kill(Pid::from_raw(pid), sig) {
                 qprintln!("Failed to send signal to {pid}: {err}");
+            } else if args.verbose {
+                println!("Killed {process_name}({pid}) with signal {}", sig as i32);
             }
         }
     }
